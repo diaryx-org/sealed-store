@@ -1,0 +1,101 @@
+# corgi: one build store for the machine, shared by every checkout
+# (https://corgi.build). Cargo reads none of this; it is corgi's alone.
+#
+# The libraries and the Python are unit's corgi.toml's, to the hash, so what
+# aril-gui, unit and diaryx share (Blitz, Stylo, fontconfig) is built once for all three.
+# CI builds with cargo, and so does a machine without corgi.
+
+# The glibc a Linux build links against, as diaryx's.
+glibc = "2.38"
+
+# fontconfig and what it is linked with (Blitz's text, through
+# yeslogic-fontconfig-sys), and OpenSSL (dioxus-native's `net`).
+[libraries.libfontconfig-dev]
+url = "https://snapshot.debian.org/archive/debian/20250408T205804Z/pool/main/f/fontconfig/libfontconfig-dev_2.15.0-2.3_arm64.deb"
+sha256 = "900c6ec77004811e24ca5e014f663e910802ee505c3c29dbd93a8c8325085af8"
+targets = ["aarch64-unknown-linux-gnu"]
+
+[libraries.libfontconfig1]
+url = "https://snapshot.debian.org/archive/debian/20250408T205804Z/pool/main/f/fontconfig/libfontconfig1_2.15.0-2.3_arm64.deb"
+sha256 = "872781cf62926b68c34a4302a3caae334ff8d4d83a2b2477f8fb454460aadc99"
+targets = ["aarch64-unknown-linux-gnu"]
+
+[libraries.libfreetype-dev]
+url = "https://snapshot.debian.org/archive/debian/20260319T144518Z/pool/main/f/freetype/libfreetype-dev_2.13.3+dfsg-1+deb13u1_arm64.deb"
+sha256 = "967117e243f1ac18cb822db246ff6c4f482fd272e89ea8b3b7760871ca74b3fe"
+targets = ["aarch64-unknown-linux-gnu"]
+
+[libraries.libfreetype6]
+url = "https://snapshot.debian.org/archive/debian/20260319T144518Z/pool/main/f/freetype/libfreetype6_2.13.3+dfsg-1+deb13u1_arm64.deb"
+sha256 = "0c426e83f1af816b9a4df9056fd2238463d1cd07969ee640965da9fb6ecaf107"
+targets = ["aarch64-unknown-linux-gnu"]
+
+[libraries.libexpat1-dev]
+url = "https://snapshot.debian.org/archive/debian/20260819T030017Z/pool/main/e/expat/libexpat1-dev_2.8.3-1~deb13u1_arm64.deb"
+sha256 = "a9b760a2291295ab70d45123926d800f5333bbdf7da0f132fb72268a377f8c6d"
+targets = ["aarch64-unknown-linux-gnu"]
+
+[libraries.libexpat1]
+url = "https://snapshot.debian.org/archive/debian/20260819T030017Z/pool/main/e/expat/libexpat1_2.8.3-1~deb13u1_arm64.deb"
+sha256 = "c3248c4beb721c8290e6e34527ae56b1fc965aa6a14982ca602df4458ef0854e"
+targets = ["aarch64-unknown-linux-gnu"]
+
+[libraries.zlib1g-dev]
+url = "https://snapshot.debian.org/archive/debian/20241103T025904Z/pool/main/z/zlib/zlib1g-dev_1.3.dfsg+really1.3.1-1+b1_arm64.deb"
+sha256 = "745ebcf1fa115e230af76216355d7290a24f1790fe3780249b519c0e4d30534f"
+targets = ["aarch64-unknown-linux-gnu"]
+
+[libraries.zlib1g]
+url = "https://snapshot.debian.org/archive/debian/20241103T025904Z/pool/main/z/zlib/zlib1g_1.3.dfsg+really1.3.1-1+b1_arm64.deb"
+sha256 = "209aa5cf671e97b9eb0410844fa6df4cae2e75b0c72e7802ab6c8ece13e6ddef"
+targets = ["aarch64-unknown-linux-gnu"]
+
+[libraries.libpng-dev]
+url = "https://snapshot.debian.org/archive/debian/20260510T204219Z/pool/main/libp/libpng1.6/libpng-dev_1.6.48-1+deb13u5_arm64.deb"
+sha256 = "a212fde02b2930302edcc959eaa2079bb459def3a92741cc09f6f55c250b8ca0"
+targets = ["aarch64-unknown-linux-gnu"]
+
+[libraries.libpng16-16t64]
+url = "https://snapshot.debian.org/archive/debian/20260510T204219Z/pool/main/libp/libpng1.6/libpng16-16t64_1.6.48-1+deb13u5_arm64.deb"
+sha256 = "11096ad43504ca24e8044bcc89e922d932a2812ff25568613b28d22235190ba5"
+targets = ["aarch64-unknown-linux-gnu"]
+
+[libraries.libbrotli-dev]
+url = "https://snapshot.debian.org/archive/debian/20250227T025207Z/pool/main/b/brotli/libbrotli-dev_1.1.0-2+b7_arm64.deb"
+sha256 = "6c1fb26205d7241406511b0b3e9b05d87d25c2288ac4dcc9d5d2ab3af5bd9116"
+targets = ["aarch64-unknown-linux-gnu"]
+
+[libraries.libbrotli1]
+url = "https://snapshot.debian.org/archive/debian/20250227T025207Z/pool/main/b/brotli/libbrotli1_1.1.0-2+b7_arm64.deb"
+sha256 = "10270398c4842e71c72b4081fa1761728b3225d6c8dce7c58d5baafe58a5e18f"
+targets = ["aarch64-unknown-linux-gnu"]
+
+[libraries.libbz2-dev]
+url = "https://snapshot.debian.org/archive/debian/20240819T204354Z/pool/main/b/bzip2/libbz2-dev_1.0.8-6_arm64.deb"
+sha256 = "580ca6907c86073e275241fc25448bd7867938d0c326cc3975a9ea84f8a7ba0f"
+targets = ["aarch64-unknown-linux-gnu"]
+
+[libraries."libbz2-1.0"]
+url = "https://snapshot.debian.org/archive/debian/20240819T204354Z/pool/main/b/bzip2/libbz2-1.0_1.0.8-6_arm64.deb"
+sha256 = "3537fe4fc577a60c8a9568873cd577db7ebc135eb8bb1825f18caf8972d9d2f2"
+targets = ["aarch64-unknown-linux-gnu"]
+
+[libraries.libssl-dev]
+url = "https://snapshot.debian.org/archive/debian/20260930T023522Z/pool/main/o/openssl/libssl-dev_3.6.5-1_arm64.deb"
+sha256 = "8bd916da011f9ab665eaf15b96b1865d38ec510306917dc2f0a5219ce915626f"
+targets = ["aarch64-unknown-linux-gnu"]
+
+[libraries.libssl3t64]
+url = "https://snapshot.debian.org/archive/debian/20260930T023522Z/pool/main/o/openssl/libssl3t64_3.6.5-1_arm64.deb"
+sha256 = "76770c099cfb06cd48cb0764ac3a7771c8b38e17d25780010d55772dce6b36f8"
+targets = ["aarch64-unknown-linux-gnu"]
+
+# Stylo (Blitz's CSS engine) generates its style system with Python.
+[tools.python3]
+version = "3.13.18"
+url = "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.13.18%2B20261026-aarch64-unknown-linux-gnu-install_only.tar.gz"
+sha256 = "b48451865bde9a39e2f3e71d7fdcbf1f32615f50f24d78dc50d04ede6501cf81"
+bin = "python/bin/python3"
+env = "PYTHON3"
+packages = ["stylo"]
+targets = ["aarch64-unknown-linux-gnu"]

@@ -1,0 +1,40 @@
+# A window over a vault, for trying aril by hand: make one in a directory,
+# open it, put files in and take them out, and see beside them what the
+# directory's keeper sees. Drawn by Blitz, with unit's components.
+#
+#     cargo run -p aril-gui            # a window
+#     cargo test -p aril-gui           # the page, laid out and pressed headless
+#
+# Dioxus, dioxus-native and Blitz at unit-gallery's versions and features, to
+# the letter, so corgi builds none of them again.
+[package]
+name = "aril-gui"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[features]
+default = ["native"]
+native = ["dep:dioxus-native"]
+
+[dependencies]
+aril = { path = ".." }
+unit = { git = "https://github.com/diaryx-org/unit", branch = "main", features = ["apple"] }
+dioxus = { version = "0.8.0-alpha.3", default-features = false, features = [
+    "macro",
+    "html",
+    "signals",
+    "hooks",
+] }
+dioxus-native = { version = "0.8.0-alpha.3", optional = true, default-features = false, features = [
+    "net", "svg", "system-fonts", "vello-hybrid", "accessibility",
+] }
+
+[dev-dependencies]
+# The page built and laid out with no window, as unit's gallery is tested.
+dioxus-core = "=0.8.0-alpha.3"
+blitz-dom = { version = "=0.3.0-beta.4", default-features = false, features = ["accessibility", "system-fonts"] }
+blitz-traits = "=0.3.0-beta.4"
+atomic_refcell = "0.1"
+keyboard-types = "0.8"

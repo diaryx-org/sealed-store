@@ -1,0 +1,9 @@
+# The org's Rust (diaryx-org/nix's `versions.rust`): above 1.95 because
+# macOS 27's dyld refuses some proc-macro dylibs 1.95's rustc links. rustfmt
+# and clippy because CI runs them; wasm32 because the gallery is linted for
+# the web too.
+[toolchain]
+channel = "1.98.1"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]

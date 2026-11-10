@@ -1,0 +1,85 @@
+# aril — a sealed object store for hosts that are not trusted with what they
+# hold: one root per vault, a key for content and a key for names derived from
+# it, every object under a name the host cannot read, and as many ways in
+# (a password, a key for one person) as there are wraps of the one key.
+#
+# It began as diaryx's `online/src/publish/crypto.rs`, the client half of
+# encrypted publishing, and its v1 derivations and frames are that module's to
+# the byte (docs/format.md): what diaryx sealed, aril opens.
+#
+# The library at the root, and `gui/`, a window over a vault for trying it.
+#
+#     cargo test                  # the library
+#     cargo run -p aril-gui       # a vault, in a window drawn by Blitz
+#     corgi test --workspace      # where corgi is installed
+[workspace]
+members = ["gui"]
+default-members = ["."]
+
+[package]
+name = "aril"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.88"
+description = "A sealed object store for untrusted hosts: blinded names, padded AEAD frames, and one key wrapped once per way in."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/diaryx-org/aril"
+readme = "README.md"
+publish = false
+
+[features]
+default = ["vault"]
+# `Vault`, `Store` and the stores: files by path over the primitives, with a
+# JSON header. Without it the crate is the key material and the frames alone,
+# which is all diaryx's publisher asks of it.
+vault = ["dep:serde", "dep:serde_json"]
+
+# RustCrypto throughout, at the versions diaryx's lockfile already holds, so a
+# build beside diaryx's compiles none of them twice. No C, so it links into a
+# static musl binary and into wasm alike.
+[dependencies]
+aes-gcm = "0.10"
+hkdf = "0.12"
+hmac = "0.12"
+sha2 = "0.10"
+# One Argon2id run per password gate. `default-features = false` would drop
+# `password-hash`, which nothing here uses; it stays on so the feature set is
+# the one diaryx's server and publisher already build.
+argon2 = "0.5"
+base64 = "0.22"
+# OS entropy for secrets, roots and random nonces.
+rand_core = { version = "0.6", features = ["getrandom"] }
+# Key material wipes itself on drop.
+zeroize = { version = "1", features = ["zeroize_derive"] }
+# Bodies are gzipped before they are sealed: a browser inflates them with its
+# own DecompressionStream('gzip').
+flate2 = "1"
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_json = { version = "1.0", optional = true }
+
+# Blitz from diaryx-org's fork, as unit's manifest says and for its reasons:
+# only the GUI reaches it.
+[patch.crates-io]
+blitz-dom = { git = "https://github.com/diaryx-org/blitz", branch = "leaf" }
+blitz-traits = { git = "https://github.com/diaryx-org/blitz", branch = "leaf" }
+blitz-shell = { git = "https://github.com/diaryx-org/blitz", branch = "leaf" }
+blitz-paint = { git = "https://github.com/diaryx-org/blitz", branch = "leaf" }
+blitz-net = { git = "https://github.com/diaryx-org/blitz", branch = "leaf" }
+stylo_taffy = { git = "https://github.com/diaryx-org/blitz", branch = "leaf" }
+debug_timer = { git = "https://github.com/diaryx-org/blitz", branch = "leaf" }
+accesskit_xplat = { git = "https://github.com/diaryx-org/blitz", branch = "leaf" }
+# Blitz's default renderer, vello-hybrid, which the gallery draws with: the
+# fork's patches make it draw emoji, backdrop-filter, color matrices and a
+# blur with one after it (FORK.md there).
+anyrender_vello_hybrid = { git = "https://github.com/diaryx-org/blitz", branch = "leaf" }
+glifo = { git = "https://github.com/diaryx-org/blitz", branch = "leaf" }
+vello_gpu = { git = "https://github.com/diaryx-org/blitz", branch = "leaf" }
+vello_gpu_shaders = { git = "https://github.com/diaryx-org/blitz", branch = "leaf" }
+
+[profile.dev]
+debug = "line-tables-only"
+
+# Stylo, parley and Vello optimised even in a debug build, or a frame takes
+# ten times as long to draw.
+[profile.dev.package."*"]
+opt-level = 3
