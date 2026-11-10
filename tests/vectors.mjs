@@ -1,4 +1,4 @@
-// An independent sealing of aril's v1 frames with Node's crypto and zlib:
+// An independent sealing of sealed-store's v1 frames with Node's crypto and zlib:
 // nothing here is RustCrypto or flate2.
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
@@ -14,7 +14,7 @@ const root = Buffer.alloc(32, 2);
 const dek = hkdf(root, 'diaryx-ep-v1/dek');
 const blind = hkdf(root, 'diaryx-ep-v1/blind');
 const name = crypto.createHmac('sha256', blind).update('b4rk9d').digest().subarray(0, 16).toString('hex');
-const plaintext = Buffer.from('sealed by node, opened by aril\n'.repeat(12));
+const plaintext = Buffer.from('sealed by node, opened in rust\n'.repeat(12));
 const gz = zlib.gzipSync(plaintext);
 const unpadded = 4 + gz.length;
 const body = Buffer.alloc(padme(unpadded));

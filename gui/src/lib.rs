@@ -1,7 +1,7 @@
 //! The page: a vault in a directory, opened and worked on by hand.
 //!
-//! It is for trying aril, not for keeping a diary in. Everything it does is
-//! one call on [`aril::Vault`], made on the page's own thread, so a password
+//! It is for trying sealed-store, not for keeping a diary in. Everything it does is
+//! one call on [`sealed_store::Vault`], made on the page's own thread, so a password
 //! being stretched holds the window still for as long as Argon2id takes.
 //!
 //! The binary shows the page in a window; the tests lay it out headless and
@@ -9,17 +9,18 @@
 
 use std::path::PathBuf;
 
-use aril::{DirStore, Entry as File, Gate, GateType, Held, Vault};
 use dioxus::prelude::*;
+use sealed_store::{DirStore, Entry as File, Gate, GateType, Held, Vault};
 use unit::prelude::*;
 
 /// The largest file shown as text in the page.
 const PREVIEW_LIMIT: usize = 64 * 1024;
 
-/// The page, at the directory `ARIL_VAULT` names, or `~/aril-vault`.
+/// The page, at the directory `SEALED_STORE_VAULT` names, or `~/sealed-store-vault`.
 #[allow(non_snake_case)]
 pub fn App() -> Element {
-    let dir = std::env::var("ARIL_VAULT").unwrap_or_else(|_| "~/aril-vault".to_string());
+    let dir =
+        std::env::var("SEALED_STORE_VAULT").unwrap_or_else(|_| "~/sealed-store-vault".to_string());
     rsx! { AppAt { dir } }
 }
 
@@ -45,11 +46,11 @@ pub fn AppAt(dir: String) -> Element {
     let open = state.vault.read().is_some();
     let said = state.said.read().clone();
     rsx! {
-        UnitRoot { class: "aril",
+        UnitRoot { class: "vault-page",
             style { {CSS} }
             Stack { gap: 16.0,
                 Stack { axis: Axis::Horizontal, align: Align::Center, wrap: true,
-                    Heading { level: 1, "aril" }
+                    Heading { level: 1, "Sealed store" }
                     Badge { tone: if open { Tone::Success } else { Tone::Neutral },
                         if open { "open" } else { "locked" }
                     }
@@ -58,7 +59,7 @@ pub fn AppAt(dir: String) -> Element {
                         Button { onpress: move |_| state.lock(), "Lock" }
                     }
                 }
-                div { class: "aril-said {said.class()}", role: "status", "{said.text}" }
+                div { class: "vault-said {said.class()}", role: "status", "{said.text}" }
                 if open {
                     Opened { state }
                 } else {
@@ -158,7 +159,7 @@ impl State {
 
     /// Run `f` on the open vault, say `done` or what went wrong, and read
     /// the vault again.
-    fn with(self, what: &str, f: impl FnOnce(&Vault<DirStore>) -> aril::Result<String>) {
+    fn with(self, what: &str, f: impl FnOnce(&Vault<DirStore>) -> sealed_store::Result<String>) {
         let outcome = {
             let vault = self.vault.peek();
             let Some(v) = vault.as_ref() else {
@@ -179,7 +180,7 @@ impl State {
         self.refresh();
     }
 
-    fn store(self) -> aril::Result<DirStore> {
+    fn store(self) -> sealed_store::Result<DirStore> {
         DirStore::new(on_disk(&self.dir.peek()))
     }
 
@@ -258,18 +259,18 @@ impl State {
 
 const CSS: &str = r#"
 html, body { margin: 0; }
-.aril { min-height: 100vh; padding: 20px 24px 60px; }
-.aril-said { color: var(--unit-dim); }
-.aril-said.wrong { color: var(--unit-danger); }
-.aril-grid { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
-.aril-grid > .unit-card { width: 380px; max-width: 100%; }
-.aril-grid > .unit-card.wide { width: 776px; }
-.aril-mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.85em;
+.vault-page { min-height: 100vh; padding: 20px 24px 60px; }
+.vault-said { color: var(--unit-dim); }
+.vault-said.wrong { color: var(--unit-danger); }
+.vault-grid { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+.vault-grid > .unit-card { width: 380px; max-width: 100%; }
+.vault-grid > .unit-card.wide { width: 776px; }
+.vault-mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.85em;
              white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
-.aril-preview { max-height: 260px; overflow: auto; padding: 8px 10px;
+.vault-preview { max-height: 260px; overflow: auto; padding: 8px 10px;
                 border: 1px solid var(--unit-border); border-radius: 6px; }
-.aril-held { display: flex; gap: 12px; justify-content: space-between; }
-.aril-held .len { color: var(--unit-dim); flex: none; }
+.vault-held { display: flex; gap: 12px; justify-content: space-between; }
+.vault-held .len { color: var(--unit-dim); flex: none; }
 "#;
 
 /// No vault open: a directory, and a password or a key to open it with.
@@ -279,11 +280,11 @@ fn Locked(state: State) -> Element {
     let mut password = use_signal(String::new);
     let mut key = use_signal(String::new);
     rsx! {
-        div { class: "aril-grid",
+        div { class: "vault-grid",
             Card { title: "A vault in a directory",
                 Stack {
                     TextField { label: "Directory", name: "dir", value: dir(),
-                                placeholder: "~/aril-vault", oninput: move |v| dir.set(v) }
+                                placeholder: "~/sealed-store-vault", oninput: move |v| dir.set(v) }
                     TextField { label: "Password", name: "password", kind: InputKind::Password,
                                 value: password(), oninput: move |v| password.set(v),
                                 onsubmit: move |v: String| state.open(&v) }
@@ -323,7 +324,7 @@ fn Opened(state: State) -> Element {
         .and_then(|path| files.iter().find(|f| f.path == *path).cloned());
     let mut selected_signal = state.selected;
     rsx! {
-        div { class: "aril-grid",
+        div { class: "vault-grid",
             Card { title: "Files",
                 if files.is_empty() {
                     Text { dim: true, "Nothing is kept here yet." }
@@ -445,9 +446,9 @@ fn OneFile(state: State, file: File) -> Element {
     rsx! {
         Card { title: file.path.clone(),
             Stack {
-                Text { dim: true, "{size(file.len)}, SHA-256 " span { class: "aril-mono", "{file.digest}" } }
+                Text { dim: true, "{size(file.len)}, SHA-256 " span { class: "vault-mono", "{file.digest}" } }
                 match shown {
-                    Ok(text) => rsx! { pre { class: "aril-mono aril-preview", "{text}" } },
+                    Ok(text) => rsx! { pre { class: "vault-mono vault-preview", "{text}" } },
                     Err(why) => rsx! { Text { dim: true, "{why}" } },
                 }
                 Divider {}
@@ -477,10 +478,10 @@ fn OneFile(state: State, file: File) -> Element {
                                     let to = on_disk(&to);
                                     state.with("Saving a copy", |v| {
                                         let bytes = v.get(&path)?.ok_or_else(|| {
-                                            aril::Error::Vault(format!("{path:?} is gone"))
+                                            sealed_store::Error::Vault(format!("{path:?} is gone"))
                                         })?;
                                         std::fs::write(&to, &bytes).map_err(|e| {
-                                            aril::Error::Store(format!("writing {}: {e}", to.display()))
+                                            sealed_store::Error::Store(format!("writing {}: {e}", to.display()))
                                         })?;
                                         Ok(format!("Saved {path:?} in the clear at {}.", to.display()))
                                     });
@@ -541,7 +542,7 @@ fn Gates(state: State) -> Element {
                 if let Some((of, key)) = minted {
                     Callout { tone: Tone::Warning, title: format!("The key {of:?}, shown once"),
                               ondismiss: move |_| minted_signal.set(None),
-                        pre { class: "aril-mono aril-key", "{key}" }
+                        pre { class: "vault-mono vault-key", "{key}" }
                         "It opens the vault with no password, and is kept nowhere but here."
                     }
                 }
@@ -564,9 +565,9 @@ fn Keeper(state: State) -> Element {
         Card { title: "What the directory's keeper sees", class: "wide",
             Stack {
                 Text { dim: true, "{dir.display()}: {held.len()} blobs, {size(total)}." }
-                div { class: "aril-mono aril-keeper",
+                div { class: "vault-mono vault-keeper",
                     for blob in held {
-                        div { key: "{blob.name}", class: "aril-held",
+                        div { key: "{blob.name}", class: "vault-held",
                             span { class: "name", "{blob.name}" }
                             span { class: "len", "{blob.len} B" }
                         }
@@ -584,7 +585,7 @@ fn Keeper(state: State) -> Element {
                 }
                 Text { dim: true,
                     "e/ is one entry per file, c/ a file's bytes. The names are HMACs, the lengths "
-                    "padded, and aril.json holds the gates: a salt, and the root wrapped once per gate."
+                    "padded, and vault.json holds the gates: a salt, and the root wrapped once per gate."
                 }
             }
         }

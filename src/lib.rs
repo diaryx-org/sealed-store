@@ -1,4 +1,4 @@
-//! aril: a sealed object store for hosts that are not trusted with what they
+//! sealed-store: a sealed object store for hosts that are not trusted with what they
 //! hold.
 //!
 //! Three layers, each usable without the one above it:
@@ -18,7 +18,7 @@
 //!
 //! ```
 //! # #[cfg(feature = "vault")] {
-//! use aril::{MemStore, PasswordKdf, Vault};
+//! use sealed_store::{MemStore, PasswordKdf, Vault};
 //!
 //! let store = MemStore::new();
 //! // `Vault::create(&store, password)` in real use: these costs are a test's.
@@ -29,7 +29,7 @@
 //! assert_eq!(again.get("journal/today.md")?.as_deref(), Some(&b"# Today"[..]));
 //! assert!(Vault::open(&store, "wrong horse").is_err());
 //! # }
-//! # Ok::<(), aril::Error>(())
+//! # Ok::<(), sealed_store::Error>(())
 //! ```
 //!
 //! The format is written down in `docs/format.md`, with what it does not

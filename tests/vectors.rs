@@ -5,7 +5,7 @@
 //!
 //! `node tests/vectors.mjs` prints them again.
 
-use aril::{GateSecret, Root, derive_link_gate, open_object, unwrap_dek};
+use sealed_store::{GateSecret, Root, derive_link_gate, open_object, unwrap_dek};
 
 fn unhex(s: &str) -> Vec<u8> {
     (0..s.len())
@@ -25,11 +25,11 @@ fn an_object_sealed_by_node_opens() {
     let name = keys.object_key("b4rk9d");
     assert_eq!(name, "2483a2238d98257737af039fd0436f09");
     let frame = unhex(
-        "44455031070707070707070707070707573783f1542906ebf2864683959a60b6ea0b4975df0d1679fa891be67362402ec29ecf960c59c8430078fdc4d529590aa2683c8ac2f88180efb4e81251f8b4626f7f09faae5b02a2",
+        "444550310707070707070707070707075b3783f1542906ebf2864683959a60b6ea0b4975df0d1679fa891be67362402ec29e072b4e1a366390d8974f9d2c4a9f7764645ebbd712292f902ec5dc457f87576607556153112ee1e78933",
     );
     assert_eq!(
         open_object(&keys.dek(), &name, &frame).unwrap(),
-        b"sealed by node, opened by aril\n".repeat(12)
+        b"sealed by node, opened in rust\n".repeat(12)
     );
     assert!(open_object(&keys.dek(), &keys.object_key("other"), &frame).is_err());
 }

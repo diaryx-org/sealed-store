@@ -1,6 +1,6 @@
 # The format (v1)
 
-What aril writes, and what it does and does not claim. Three things consume
+What sealed-store writes, and what it does and does not claim. Three things consume
 these constants today: this crate, diaryx's edge worker, and diaryx's reader
 shell in the browser. Every label is prefixed `diaryx-ep-v1/`, where the
 format was first written down (diaryx's Encrypted Publishing Spec, Appendices
@@ -88,16 +88,16 @@ The nonce rides in the frame because a reader holds the DEK and not the root.
 
 ## A vault
 
-A vault is files by path in a store. This layer is aril's own and newer than
+A vault is files by path in a store. This layer is sealed-store's own and newer than
 the rest; diaryx does not use it.
 
-**Store names.** `aril.json`, `e/<32 hex>`, `c/<32 hex>`.
+**Store names.** `vault.json`, `e/<32 hex>`, `c/<32 hex>`.
 
-**Header**, `aril.json`, in the clear:
+**Header**, `vault.json`, in the clear:
 
 ```json
 {
-  "aril": 1,
+  "vault": 1,
   "id": "<16 random bytes, hex>",
   "gates": [
     {"id": "password", "kind": "password",
@@ -110,7 +110,7 @@ the rest; diaryx does not use it.
 
 A gate's `wrap` is the vault's **root**, not its DEK:
 `nonce(12, random) ‖ AES-256-GCM(kek, nonce, root)` with AAD
-`"aril-vault-v1/root" ‖ id`. Whoever opens a vault can name and write files,
+`"sealed-store-v1/vault-root" ‖ id`. Whoever opens a vault can name and write files,
 which takes the blind key, which takes the root. The id in the AAD keeps a
 wrap lifted from one vault's header from opening another's.
 

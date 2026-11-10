@@ -3,7 +3,7 @@
 //!
 //! Built from the primitives and nothing else (docs/format.md, "A vault"):
 //!
-//! - `aril.json`, in the clear: the vault's id and its gates, each a way in
+//! - `vault.json`, in the clear: the vault's id and its gates, each a way in
 //!   that wraps the vault's [`Root`].
 //! - `c/<name>`: a file's bytes, sealed, named by the digest of the bytes. A
 //!   file kept twice is one object, and a renamed file is not sealed again.
@@ -33,15 +33,15 @@ use crate::object::{open_object, seal_derived};
 use crate::store::Store;
 
 /// The header's name in the store.
-pub const HEADER: &str = "aril.json";
+pub const HEADER: &str = "vault.json";
 const VERSION: u32 = 1;
-const AAD_ROOT: &[u8] = b"aril-vault-v1/root";
+const AAD_ROOT: &[u8] = b"sealed-store-v1/vault-root";
 const ENTRIES: &str = "e";
 const CONTENTS: &str = "c";
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct Header {
-    aril: u32,
+    vault: u32,
     /// 16 random bytes, hex: bound into every gate's wrap, so a wrap lifted
     /// from one vault's header opens nothing in another's.
     id: String,
@@ -150,10 +150,10 @@ fn header_of<S: Store>(store: &S) -> Result<Option<Header>> {
     };
     let header: Header = serde_json::from_slice(&bytes)
         .map_err(|e| Error::Vault(format!("{HEADER} is not a vault's header: {e}")))?;
-    if header.aril != VERSION {
+    if header.vault != VERSION {
         return Err(Error::Vault(format!(
             "a vault of version {}, and this build reads version {VERSION}",
-            header.aril
+            header.vault
         )));
     }
     Ok(Some(header))
@@ -213,7 +213,7 @@ impl<S: Store> Vault<S> {
         let root = Root::mint();
         let kek = derive_password_gate(password, &kdf)?.kek;
         let header = Header {
-            aril: VERSION,
+            vault: VERSION,
             gates: vec![GateRecord {
                 id: "password".to_string(),
                 kind: GateKind::Password {
@@ -846,7 +846,8 @@ mod tests {
     #[test]
     fn a_vault_on_disk_opens_again() {
         use crate::store::DirStore;
-        let dir = std::env::temp_dir().join(format!("agent-aril-vault-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("agent-sealed-store-vault-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         {
             let v = Vault::create_with(DirStore::new(&dir).unwrap(), "pw", cheap()).unwrap();

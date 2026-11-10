@@ -276,38 +276,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "aril"
-version = "0.0.0"
-dependencies = [
- "aes-gcm",
- "argon2",
- "base64 0.22.1",
- "flate2",
- "hkdf",
- "hmac",
- "rand_core",
- "serde",
- "serde_json",
- "sha2",
- "zeroize",
-]
-
-[[package]]
-name = "aril-gui"
-version = "0.0.0"
-dependencies = [
- "aril",
- "atomic_refcell",
- "blitz-dom",
- "blitz-traits",
- "dioxus",
- "dioxus-core",
- "dioxus-native",
- "keyboard-types",
- "unit",
-]
-
-[[package]]
 name = "arrayref"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3970,6 +3938,38 @@ dependencies = [
  "memmap2",
  "smithay-client-toolkit",
  "tiny-skia",
+]
+
+[[package]]
+name = "sealed-store"
+version = "0.0.0"
+dependencies = [
+ "aes-gcm",
+ "argon2",
+ "base64 0.22.1",
+ "flate2",
+ "hkdf",
+ "hmac",
+ "rand_core",
+ "serde",
+ "serde_json",
+ "sha2",
+ "zeroize",
+]
+
+[[package]]
+name = "sealed-store-gui"
+version = "0.0.0"
+dependencies = [
+ "atomic_refcell",
+ "blitz-dom",
+ "blitz-traits",
+ "dioxus",
+ "dioxus-core",
+ "dioxus-native",
+ "keyboard-types",
+ "sealed-store",
+ "unit",
 ]
 
 [[package]]

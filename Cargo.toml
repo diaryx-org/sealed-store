@@ -1,29 +1,29 @@
-# aril — a sealed object store for hosts that are not trusted with what they
+# sealed-store — a sealed object store for hosts that are not trusted with what they
 # hold: one root per vault, a key for content and a key for names derived from
 # it, every object under a name the host cannot read, and as many ways in
 # (a password, a key for one person) as there are wraps of the one key.
 #
 # It began as diaryx's `online/src/publish/crypto.rs`, the client half of
 # encrypted publishing, and its v1 derivations and frames are that module's to
-# the byte (docs/format.md): what diaryx sealed, aril opens.
+# the byte (docs/format.md): what diaryx sealed, sealed-store opens.
 #
 # The library at the root, and `gui/`, a window over a vault for trying it.
 #
 #     cargo test                  # the library
-#     cargo run -p aril-gui       # a vault, in a window drawn by Blitz
+#     cargo run -p sealed-store-gui       # a vault, in a window drawn by Blitz
 #     corgi test --workspace      # where corgi is installed
 [workspace]
 members = ["gui"]
 default-members = ["."]
 
 [package]
-name = "aril"
+name = "sealed-store"
 version = "0.0.0"
 edition = "2024"
 rust-version = "1.88"
 description = "A sealed object store for untrusted hosts: blinded names, padded AEAD frames, and one key wrapped once per way in."
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/diaryx-org/aril"
+repository = "https://github.com/diaryx-org/sealed-store"
 readme = "README.md"
 publish = false
 

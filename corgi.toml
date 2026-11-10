@@ -2,7 +2,7 @@
 # (https://corgi.build). Cargo reads none of this; it is corgi's alone.
 #
 # The libraries and the Python are unit's corgi.toml's, to the hash, so what
-# aril-gui, unit and diaryx share (Blitz, Stylo, fontconfig) is built once for all three.
+# sealed-store-gui, unit and diaryx share (Blitz, Stylo, fontconfig) is built once for all three.
 # CI builds with cargo, and so does a machine without corgi.
 
 # The glibc a Linux build links against, as diaryx's.

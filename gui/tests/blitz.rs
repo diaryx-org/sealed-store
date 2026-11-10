@@ -25,8 +25,10 @@ struct Scratch(PathBuf);
 
 impl Scratch {
     fn new(name: &str) -> Self {
-        let dir =
-            std::env::temp_dir().join(format!("agent-aril-gui-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "agent-sealed-store-gui-{name}-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         Scratch(dir)
     }
@@ -40,7 +42,7 @@ impl Drop for Scratch {
 
 /// The page over the vault directory `dir`, built and laid out.
 fn page(dir: &Path) -> DioxusDocument {
-    let vdom = aril_gui::page_at(dir.to_string_lossy());
+    let vdom = sealed_store_gui::page_at(dir.to_string_lossy());
     let mut doc = DioxusDocument::new(vdom, DocumentConfig::default());
     doc.inner
         .borrow_mut()
@@ -162,7 +164,7 @@ fn press(doc: &mut DioxusDocument, button: &str) {
 
 /// What the page says it last did, and whether it says it went wrong.
 fn said(doc: &DioxusDocument) -> (String, bool) {
-    let node = one(doc, ".aril-said");
+    let node = one(doc, ".vault-said");
     let inner = doc.inner.borrow();
     let node = inner.get_node(node).unwrap();
     let wrong = node
@@ -230,13 +232,13 @@ fn a_note_kept_in_the_page_is_sealed_in_the_directory() {
 
     // In the page: the file, chosen, and its text read back out of the vault.
     assert_eq!(texts(&doc, ".unit-row-title")[0], "journal/today.md");
-    assert_eq!(texts(&doc, ".aril-preview"), vec![NOTE.to_string()]);
+    assert_eq!(texts(&doc, ".vault-preview"), vec![NOTE.to_string()]);
 
     // In the keeper's list, and in the directory itself: a header, an entry
     // and the bytes, under names and in bytes that say nothing.
-    let names = texts(&doc, ".aril-held .name");
+    let names = texts(&doc, ".vault-held .name");
     assert_eq!(names.len(), 3, "{names:?}");
-    assert_eq!(names[0], "aril.json");
+    assert_eq!(names[0], "vault.json");
     assert!(
         names[1].starts_with("e/") && names[2].starts_with("c/"),
         "{names:?}"
@@ -273,7 +275,7 @@ fn a_locked_vault_opens_with_its_password_and_no_other() {
         texts(&doc, ".unit-row-title").is_empty(),
         "a locked page lists nothing"
     );
-    assert!(texts(&doc, ".aril-preview").is_empty());
+    assert!(texts(&doc, ".vault-preview").is_empty());
 
     type_into(&mut doc, "input[name='password']", "wrong horse");
     press(&mut doc, "Open");
@@ -292,7 +294,7 @@ fn a_locked_vault_opens_with_its_password_and_no_other() {
     assert_eq!(texts(&doc, ".unit-row-title")[0], "journal/today.md");
     let row = find(&doc, ".unit-row-title", "journal/today.md");
     click(&mut doc, row);
-    assert_eq!(texts(&doc, ".aril-preview"), vec![NOTE.to_string()]);
+    assert_eq!(texts(&doc, ".vault-preview"), vec![NOTE.to_string()]);
 }
 
 #[test]
@@ -303,12 +305,12 @@ fn a_key_made_in_the_page_opens_the_vault_without_the_password() {
     let add = find(&doc, ".unit-field-action button", "Add");
     click(&mut doc, add);
     assert_eq!(said(&doc), ("Added the key \"recovery\".".into(), false));
-    let key = texts(&doc, ".aril-key").remove(0);
+    let key = texts(&doc, ".vault-key").remove(0);
     assert_eq!(key.len(), 43, "32 bytes, base64url: {key}");
 
     press(&mut doc, "Lock");
     assert!(
-        texts(&doc, ".aril-key").is_empty(),
+        texts(&doc, ".vault-key").is_empty(),
         "the key went with the lock"
     );
     type_into(&mut doc, "input[name='key']", &key);
@@ -339,7 +341,7 @@ fn a_file_moved_and_removed_leaves_the_directory_as_it_should_be() {
         "{text}"
     );
     assert_eq!(texts(&doc, ".unit-row-title")[0], "archive/kept.md");
-    assert_eq!(texts(&doc, ".aril-preview"), vec![NOTE.to_string()]);
+    assert_eq!(texts(&doc, ".vault-preview"), vec![NOTE.to_string()]);
     assert_eq!(
         content(&scratch.0),
         before,
@@ -349,8 +351,8 @@ fn a_file_moved_and_removed_leaves_the_directory_as_it_should_be() {
     press(&mut doc, "Remove from the vault");
     assert_eq!(said(&doc), ("Removed \"archive/kept.md\".".into(), false));
     assert_eq!(
-        texts(&doc, ".aril-held .name"),
-        vec!["aril.json".to_string()]
+        texts(&doc, ".vault-held .name"),
+        vec!["vault.json".to_string()]
     );
     assert_eq!(on_disk(&scratch.0).len(), 1, "only the header is left");
 }

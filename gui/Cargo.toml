@@ -1,14 +1,14 @@
-# A window over a vault, for trying aril by hand: make one in a directory,
+# A window over a vault, for trying sealed-store by hand: make one in a directory,
 # open it, put files in and take them out, and see beside them what the
 # directory's keeper sees. Drawn by Blitz, with unit's components.
 #
-#     cargo run -p aril-gui            # a window
-#     cargo test -p aril-gui           # the page, laid out and pressed headless
+#     cargo run -p sealed-store-gui            # a window
+#     cargo test -p sealed-store-gui           # the page, laid out and pressed headless
 #
 # Dioxus, dioxus-native and Blitz at unit-gallery's versions and features, to
 # the letter, so corgi builds none of them again.
 [package]
-name = "aril-gui"
+name = "sealed-store-gui"
 version = "0.0.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
@@ -19,7 +19,7 @@ default = ["native"]
 native = ["dep:dioxus-native"]
 
 [dependencies]
-aril = { path = ".." }
+sealed-store = { path = ".." }
 unit = { git = "https://github.com/diaryx-org/unit", branch = "main", features = ["apple"] }
 dioxus = { version = "0.8.0-alpha.3", default-features = false, features = [
     "macro",

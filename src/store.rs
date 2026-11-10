@@ -1,7 +1,7 @@
 //! Where a vault's bytes are kept: the party that is not trusted with them.
 //!
 //! A store holds named blobs and nothing else. Every name a vault gives it is
-//! `aril.json`, or one directory and 32 hex characters (`e/…`, `c/…`), so a
+//! `vault.json`, or one directory and 32 hex characters (`e/…`, `c/…`), so a
 //! store can be a directory in a synced folder, a bucket, or a map in memory.
 
 use std::collections::BTreeMap;
@@ -244,7 +244,7 @@ mod tests {
         ] {
             assert!(check_name(bad).is_err(), "{bad:?} was let through");
         }
-        for good in ["aril.json", "e/0123456789abcdef", "c/ab-cd_ef.1"] {
+        for good in ["vault.json", "e/0123456789abcdef", "c/ab-cd_ef.1"] {
             assert!(check_name(good).is_ok(), "{good:?} was refused");
         }
     }
@@ -254,7 +254,7 @@ mod tests {
         store.put("e/aa", b"one").unwrap();
         store.put("e/bb", b"three").unwrap();
         store.put("c/aa", b"x").unwrap();
-        store.put("aril.json", b"{}").unwrap();
+        store.put("vault.json", b"{}").unwrap();
         assert_eq!(store.get("e/aa").unwrap().as_deref(), Some(&b"one"[..]));
         store.put("e/aa", b"two!").unwrap();
         assert_eq!(store.get("e/aa").unwrap().as_deref(), Some(&b"two!"[..]));
@@ -262,7 +262,7 @@ mod tests {
             store.list("e").unwrap(),
             vec![("aa".to_string(), 4), ("bb".to_string(), 5)]
         );
-        assert_eq!(store.list("").unwrap(), vec![("aril.json".to_string(), 2)]);
+        assert_eq!(store.list("").unwrap(), vec![("vault.json".to_string(), 2)]);
         assert_eq!(store.list("nothing").unwrap(), vec![]);
         store.delete("e/aa").unwrap();
         store.delete("e/aa").unwrap();
@@ -277,7 +277,8 @@ mod tests {
 
     #[test]
     fn a_directory_keeps_what_it_is_given_and_lists_nothing_else() {
-        let dir = std::env::temp_dir().join(format!("agent-aril-store-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("agent-sealed-store-store-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let store = DirStore::new(&dir).unwrap();
         exercise(&store);

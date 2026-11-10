@@ -1,4 +1,4 @@
-# aril
+# sealed-store
 
 A sealed object store for hosts that are not trusted with what they hold: a
 synced folder, a bucket, somebody else's server. The host keeps blobs under
@@ -7,7 +7,7 @@ by path.
 
 ```sh
 cargo test                    # the library
-cargo run -p aril-gui         # a vault in a window, for trying it by hand
+cargo run -p sealed-store-gui         # a vault in a window, for trying it by hand
 corgi test --workspace        # where corgi is installed: its store is shared with unit and diaryx
 ```
 
@@ -17,12 +17,12 @@ read that before trusting it with anything.
 
 It began as the client half of diaryx's encrypted publishing
 (`online/src/publish/crypto.rs` there), and its v1 derivations and frames are
-that module's to the byte: what diaryx sealed, aril opens.
+that module's to the byte: what diaryx sealed, sealed-store opens.
 
 ## Using it
 
 ```rust
-use aril::{DirStore, Vault};
+use sealed_store::{DirStore, Vault};
 
 let mut vault = Vault::create(DirStore::new("/path/to/synced/folder")?, "correct horse")?;
 vault.put("journal/today.md", b"# Today")?;
@@ -52,7 +52,7 @@ publisher that keeps its own records asks for.
 
 ## Beside Cryptomator
 
-aril is not a filesystem and mounts nothing: it is a library an application
+sealed-store is not a filesystem and mounts nothing: it is a library an application
 calls. It hides more than Cryptomator's vault format does, and does less.
 
 - The store is flat. A host sees how many files there are and each one's
@@ -74,7 +74,7 @@ keys, and shows beside all of it what the directory's keeper sees. It is for
 trying the library, and its tests press through it headless.
 
 ```sh
-ARIL_VAULT=/tmp/agent-try-aril cargo run -p aril-gui
+SEALED_STORE_VAULT=/tmp/agent-try-sealed-store cargo run -p sealed-store-gui
 ```
 
 ## License
