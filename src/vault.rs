@@ -5,7 +5,8 @@
 //!
 //! - `vault.json`, in the clear: the vault's id and its gates, each a way in
 //!   that wraps the vault's [`Root`].
-//! - `c/<name>`: a file's bytes, sealed, named by the digest of the bytes. A
+//! - `c/<name>`: a file's bytes, sealed (chunked past [`INLINE_LIMIT`]), named
+//!   by the digest of the bytes. A
 //!   file kept twice is one object, and a renamed file is not sealed again.
 //! - `e/<name>`: one entry per file, sealed, named by its path: the path, and
 //!   the digest and length of its bytes.
@@ -31,11 +32,18 @@ use crate::keys::{
 };
 use crate::object::{open_object, seal_derived};
 use crate::store::Store;
+use crate::stream::{ReadAt, StreamOpener, is_stream, open_stream, seal_stream};
 
 /// The header's name in the store.
 pub const HEADER: &str = "vault.json";
 const VERSION: u32 = 1;
 const AAD_ROOT: &[u8] = b"sealed-store-v1/vault-root";
+/// The largest file kept as one frame, compressed and held whole in memory
+/// to seal and to open. A longer one is kept chunked ([`crate::seal_stream`]):
+/// not compressed, sealed and opened a piece at a time, and readable by
+/// range. Which a file is depends on its length alone, so the same bytes
+/// always seal the same way.
+pub const INLINE_LIMIT: u64 = 1 << 20;
 const ENTRIES: &str = "e";
 const CONTENTS: &str = "c";
 
@@ -193,6 +201,67 @@ fn check_path(path: &str) -> Result<()> {
 
 fn is_blinded(leaf: &str) -> bool {
     leaf.len() == 32 && leaf.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// A content object in the store, read a range at a time.
+struct Blob<'a, S: Store> {
+    store: &'a S,
+    name: &'a str,
+}
+
+impl<S: Store> ReadAt for Blob<'_, S> {
+    fn read_exact_at(&self, offset: u64, buf: &mut [u8]) -> Result<()> {
+        let range = self
+            .store
+            .get_range(self.name, offset, buf.len())?
+            .ok_or_else(|| Error::Store(format!("{} is missing", self.name)))?;
+        buf.copy_from_slice(&range);
+        Ok(())
+    }
+}
+
+/// A reader or a writer, with the SHA-256 of what has passed through it.
+struct Hashing<T> {
+    inner: T,
+    hash: sha2::Sha256,
+}
+
+impl<T> Hashing<T> {
+    fn new(inner: T) -> Self {
+        use sha2::Digest;
+        Self {
+            inner,
+            hash: sha2::Sha256::new(),
+        }
+    }
+
+    /// Lowercase hex of the hash so far.
+    fn digest(&self) -> String {
+        use sha2::Digest;
+        hex(&self.hash.clone().finalize())
+    }
+}
+
+impl<T: std::io::Read> std::io::Read for Hashing<T> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        use sha2::Digest;
+        let n = self.inner.read(buf)?;
+        self.hash.update(&buf[..n]);
+        Ok(n)
+    }
+}
+
+impl<T: std::io::Write> std::io::Write for Hashing<T> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        use sha2::Digest;
+        let n = self.inner.write(buf)?;
+        self.hash.update(&buf[..n]);
+        Ok(n)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
 }
 
 impl<S: Store> Vault<S> {
@@ -413,53 +482,196 @@ impl<S: Store> Vault<S> {
         Ok(Some(record))
     }
 
-    /// Keep `bytes` at `path`, replacing what was there.
-    pub fn put(&self, path: &str, bytes: &[u8]) -> Result<()> {
-        check_path(path)?;
-        let digest = sha256_hex(bytes);
-        let (c_label, c_key) = self.content_name(&digest);
-        let c_name = format!("{CONTENTS}/{c_key}");
-        // The content first: an entry never names an object that is not there.
-        if self.store.get(&c_name)?.is_none() {
-            let frame = seal_derived(&self.root, &self.dek, &c_label, &c_key, bytes)?;
-            self.store.put(&c_name, &frame)?;
+    /// Seal the `len` bytes of `reader`, whose SHA-256 is `digest`, as the
+    /// content object that digest names, unless the store holds it already.
+    fn put_content(&self, digest: &str, len: u64, reader: &mut dyn std::io::Read) -> Result<()> {
+        let (label, key) = self.content_name(digest);
+        let name = format!("{CONTENTS}/{key}");
+        if self.store.size(&name)?.is_some() {
+            return Ok(());
         }
+        if len <= INLINE_LIMIT {
+            let mut bytes = Vec::with_capacity(len as usize);
+            reader
+                .read_to_end(&mut bytes)
+                .map_err(|e| Error::Io(format!("reading: {e}")))?;
+            if sha256_hex(&bytes) != digest {
+                return Err(Error::Io("the file changed while it was read".to_string()));
+            }
+            let frame = seal_derived(&self.root, &self.dek, &label, &key, &bytes)?;
+            return self.store.put(&name, &frame);
+        }
+        // Chunked, and hashed again as it is sealed: a file that changed
+        // between the pass that named it and this one must not be kept under
+        // a digest that is not its own. `put_with` puts nothing on an error.
+        let salt = self.root.stream_salt(&label, digest);
+        let mut hashing = Hashing::new(reader);
+        self.store.put_with(&name, &mut |out| {
+            seal_stream(&self.dek, &key, &salt, len, &mut hashing, out)?;
+            if hashing.digest() != digest {
+                return Err(Error::Io("the file changed while it was read".to_string()));
+            }
+            Ok(())
+        })
+    }
+
+    /// Point `path`'s entry at the content `digest` names, and let go of the
+    /// content it named before.
+    fn set_entry(&self, path: &str, digest: &str, len: u64) -> Result<()> {
         let (e_label, e_key) = self.entry_name(path);
         let was = self.read_entry(&e_key).ok().flatten().map(|e| e.content);
         let record = EntryRecord {
             path: path.to_string(),
-            content: digest.clone(),
-            len: bytes.len() as u64,
+            content: digest.to_string(),
+            len,
         };
         let plain = serde_json::to_vec(&record)
             .map_err(|e| Error::Vault(format!("writing an entry: {e}")))?;
         let frame = seal_derived(&self.root, &self.dek, &e_label, &e_key, &plain)?;
         self.store.put(&format!("{ENTRIES}/{e_key}"), &frame)?;
-        if let Some(was) = was.filter(|was| *was != digest) {
+        if let Some(was) = was.filter(|was| was != digest) {
             self.drop_content_unless_kept(&was)?;
         }
         Ok(())
     }
 
-    /// The bytes at `path`, or `None` where the vault has no such file.
-    pub fn get(&self, path: &str) -> Result<Option<Vec<u8>>> {
+    /// Keep `bytes` at `path`, replacing what was there.
+    pub fn put(&self, path: &str, bytes: &[u8]) -> Result<()> {
+        check_path(path)?;
+        let digest = sha256_hex(bytes);
+        // The content first: an entry never names an object that is not there.
+        self.put_content(&digest, bytes.len() as u64, &mut &bytes[..])?;
+        self.set_entry(path, &digest, bytes.len() as u64)
+    }
+
+    /// Keep the file at `file` on disk at `path`, replacing what was there,
+    /// without holding it in memory: it is read once to name it and once to
+    /// seal it. Returns its length.
+    pub fn put_file(&self, path: &str, file: &std::path::Path) -> Result<u64> {
+        use std::io::{Read, Seek, SeekFrom};
+        check_path(path)?;
+        let read = |e: std::io::Error| Error::Io(format!("reading {}: {e}", file.display()));
+        let mut source = std::fs::File::open(file).map_err(read)?;
+        let mut hashing = Hashing::new(&mut source);
+        let len = std::io::copy(&mut hashing, &mut std::io::sink()).map_err(read)?;
+        let digest = hashing.digest();
+        source.seek(SeekFrom::Start(0)).map_err(read)?;
+        // One byte more than was named, so a file that grew is caught.
+        self.put_content(&digest, len, &mut source.take(len + 1))?;
+        self.set_entry(path, &digest, len)?;
+        Ok(len)
+    }
+
+    /// The entry at `path` and its content object's name in the store.
+    fn locate(&self, path: &str) -> Result<Option<(EntryRecord, String, String)>> {
         check_path(path)?;
         let (_, e_key) = self.entry_name(path);
         let Some(record) = self.read_entry(&e_key)? else {
             return Ok(None);
         };
         let (_, c_key) = self.content_name(&record.content);
-        let frame = self
+        let name = format!("{CONTENTS}/{c_key}");
+        Ok(Some((record, c_key, name)))
+    }
+
+    fn missing(path: &str) -> Error {
+        Error::Store(format!("the bytes of {path:?} are missing"))
+    }
+
+    fn not_its_own(path: &str) -> Error {
+        Error::Store(format!(
+            "the bytes of {path:?} are not the ones its entry names"
+        ))
+    }
+
+    /// Whether the content object `name` is a chunked frame.
+    fn chunked(&self, path: &str, name: &str) -> Result<bool> {
+        let magic = self
             .store
-            .get(&format!("{CONTENTS}/{c_key}"))?
-            .ok_or_else(|| Error::Store(format!("the bytes of {path:?} are missing")))?;
-        let bytes = open_object(&self.dek, &c_key, &frame)?;
+            .get_range(name, 0, 4)?
+            .ok_or_else(|| Self::missing(path))?;
+        Ok(is_stream(&magic))
+    }
+
+    /// The bytes at `path`, whole and in memory, or `None` where the vault
+    /// has no such file. A large file wants [`Vault::get_to`] or
+    /// [`Vault::read_at`].
+    pub fn get(&self, path: &str) -> Result<Option<Vec<u8>>> {
+        let Some((record, c_key, name)) = self.locate(path)? else {
+            return Ok(None);
+        };
+        let frame = self.store.get(&name)?.ok_or_else(|| Self::missing(path))?;
+        let bytes = if is_stream(&frame) {
+            open_stream(&self.dek, &c_key, &frame)?
+        } else {
+            open_object(&self.dek, &c_key, &frame)?
+        };
         if sha256_hex(&bytes) != record.content {
-            return Err(Error::Store(format!(
-                "the bytes of {path:?} are not the ones its entry names"
-            )));
+            return Err(Self::not_its_own(path));
         }
         Ok(Some(bytes))
+    }
+
+    /// Write the bytes at `path` to `writer`, a chunk at a time where the
+    /// file is kept chunked. Returns the file's length, or `None` where the
+    /// vault has no such file.
+    ///
+    /// Every chunk is authenticated before it is written, but the file is
+    /// whole, and the one its entry names, only when this returns `Ok`.
+    pub fn get_to(&self, path: &str, writer: &mut dyn std::io::Write) -> Result<Option<u64>> {
+        let Some((record, c_key, name)) = self.locate(path)? else {
+            return Ok(None);
+        };
+        let mut hashing = Hashing::new(writer);
+        if self.chunked(path, &name)? {
+            let blob = Blob {
+                store: &self.store,
+                name: &name,
+            };
+            let size = self.store.size(&name)?;
+            StreamOpener::open(&self.dek, &c_key, blob, size)?.copy_to(&mut hashing)?;
+        } else {
+            use std::io::Write;
+            let frame = self.store.get(&name)?.ok_or_else(|| Self::missing(path))?;
+            hashing
+                .write_all(&open_object(&self.dek, &c_key, &frame)?)
+                .map_err(|e| Error::Io(format!("writing: {e}")))?;
+        }
+        if hashing.digest() != record.content {
+            return Err(Self::not_its_own(path));
+        }
+        Ok(Some(record.len))
+    }
+
+    /// Read into `buf` from `offset` in the file at `path`. Returns how many
+    /// bytes were read, fewer than `buf` holds only at the file's end, or
+    /// `None` where the vault has no such file.
+    ///
+    /// Of a chunked file, only the chunks that hold the range are fetched
+    /// and opened. Each is authenticated, and bound to its place in this
+    /// file; the file's digest, which takes every byte, is not checked.
+    pub fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<Option<usize>> {
+        let Some((_, c_key, name)) = self.locate(path)? else {
+            return Ok(None);
+        };
+        if self.chunked(path, &name)? {
+            let blob = Blob {
+                store: &self.store,
+                name: &name,
+            };
+            let size = self.store.size(&name)?;
+            let opener = StreamOpener::open(&self.dek, &c_key, blob, size)?;
+            return opener.read_at(offset, buf).map(Some);
+        }
+        let frame = self.store.get(&name)?.ok_or_else(|| Self::missing(path))?;
+        let bytes = open_object(&self.dek, &c_key, &frame)?;
+        let from = usize::try_from(offset)
+            .ok()
+            .and_then(|start| bytes.get(start..))
+            .unwrap_or(&[]);
+        let take = from.len().min(buf.len());
+        buf[..take].copy_from_slice(&from[..take]);
+        Ok(Some(take))
     }
 
     /// Every file, in path order. Opens every entry.
@@ -841,6 +1053,182 @@ mod tests {
         assert_eq!(v.sweep().unwrap(), 1);
         assert_eq!(v.sweep().unwrap(), 0);
         assert_eq!(v.get("a.txt").unwrap().as_deref(), Some(&b"alpha"[..]));
+    }
+
+    /// Bytes past the inline limit that do not compress and do not repeat.
+    fn large(len: usize) -> Vec<u8> {
+        (0..len as u32)
+            .map(|i| (i.wrapping_mul(2654435761) >> 13) as u8)
+            .collect()
+    }
+
+    fn content_blob(store: &MemStore) -> (String, Vec<u8>) {
+        let name = format!("c/{}", store.list("c").unwrap()[0].0);
+        let blob = store.get(&name).unwrap().unwrap();
+        (name, blob)
+    }
+
+    #[test]
+    fn a_file_past_the_inline_limit_is_kept_chunked_and_one_within_it_is_not() {
+        let store = MemStore::new();
+        let v = vault(&store);
+        let at_limit = large(INLINE_LIMIT as usize);
+        v.put("small.bin", &at_limit).unwrap();
+        assert_eq!(&content_blob(&store).1[..4], b"DEP1");
+        assert_eq!(v.get("small.bin").unwrap().unwrap(), at_limit);
+        v.remove("small.bin").unwrap();
+
+        let big = large(INLINE_LIMIT as usize + 1);
+        v.put("big.bin", &big).unwrap();
+        let (_, blob) = content_blob(&store);
+        assert_eq!(&blob[..4], b"DEP2");
+        assert_eq!(
+            blob.len() as u64,
+            crate::sealed_stream_len(big.len() as u64)
+        );
+        assert_eq!(v.get("big.bin").unwrap().unwrap(), big);
+        assert_eq!(v.list().unwrap()[0].len, big.len() as u64);
+    }
+
+    #[test]
+    fn a_range_of_a_large_file_is_read_without_the_rest() {
+        let store = MemStore::new();
+        let v = vault(&store);
+        let big = large(3 * 1024 * 1024 + 123);
+        v.put("big.bin", &big).unwrap();
+        let mut buf = vec![0u8; 100_000];
+        // Across a chunk's edge, 64 KiB in.
+        assert_eq!(
+            v.read_at("big.bin", 60_000, &mut buf).unwrap(),
+            Some(100_000)
+        );
+        assert_eq!(buf, big[60_000..160_000]);
+        let tail = big.len() as u64 - 10;
+        assert_eq!(v.read_at("big.bin", tail, &mut buf).unwrap(), Some(10));
+        assert_eq!(buf[..10], big[big.len() - 10..]);
+        assert_eq!(
+            v.read_at("big.bin", big.len() as u64, &mut buf).unwrap(),
+            Some(0)
+        );
+        assert_eq!(v.read_at("nothing.bin", 0, &mut buf).unwrap(), None);
+
+        // A small file answers the same question the long way.
+        v.put("small.txt", b"0123456789").unwrap();
+        let mut few = [0u8; 4];
+        assert_eq!(v.read_at("small.txt", 3, &mut few).unwrap(), Some(4));
+        assert_eq!(&few, b"3456");
+        assert_eq!(v.read_at("small.txt", 8, &mut few).unwrap(), Some(2));
+        assert_eq!(v.read_at("small.txt", 99, &mut few).unwrap(), Some(0));
+    }
+
+    #[test]
+    fn a_large_file_put_back_as_it_was_is_the_same_blob() {
+        let store = MemStore::new();
+        let v = vault(&store);
+        let big = large(INLINE_LIMIT as usize + 5000);
+        v.put("big.bin", &big).unwrap();
+        let before = content_blob(&store);
+        v.remove("big.bin").unwrap();
+        assert_eq!(count(&store, "c"), 0);
+        v.put("elsewhere/big.bin", &big).unwrap();
+        assert_eq!(
+            content_blob(&store),
+            before,
+            "named and sealed by its bytes"
+        );
+        v.put("copy.bin", &big).unwrap();
+        assert_eq!((count(&store, "e"), count(&store, "c")), (2, 1));
+    }
+
+    #[test]
+    fn a_large_file_with_a_chunk_changed_reads_up_to_it_and_no_further() {
+        let store = MemStore::new();
+        let v = vault(&store);
+        let big = large(INLINE_LIMIT as usize + 200_000);
+        v.put("big.bin", &big).unwrap();
+        let (name, mut blob) = content_blob(&store);
+        // A bit in the fourth 64 KiB chunk.
+        let at = crate::STREAM_HEADER + 3 * (65536 + 16) + 100;
+        blob[at] ^= 1;
+        store.put(&name, &blob).unwrap();
+
+        assert!(matches!(v.get("big.bin"), Err(Error::Open)));
+        let mut out = Vec::new();
+        assert!(matches!(v.get_to("big.bin", &mut out), Err(Error::Open)));
+        assert_eq!(
+            out,
+            big[..3 * 65536],
+            "the chunks before it, and they are true"
+        );
+        let mut buf = [0u8; 16];
+        assert_eq!(v.read_at("big.bin", 10, &mut buf).unwrap(), Some(16));
+        assert!(matches!(
+            v.read_at("big.bin", 3 * 65536 + 5, &mut buf),
+            Err(Error::Open)
+        ));
+
+        // Cut short: refused before a chunk is read.
+        blob[at] ^= 1;
+        blob.truncate(blob.len() - 70_000);
+        store.put(&name, &blob).unwrap();
+        let mut out = Vec::new();
+        assert!(matches!(
+            v.get_to("big.bin", &mut out),
+            Err(Error::Frame(_))
+        ));
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn a_file_on_disk_is_kept_and_written_back_a_piece_at_a_time() {
+        use crate::store::DirStore;
+        let dir =
+            std::env::temp_dir().join(format!("agent-sealed-store-stream-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let big = large(2 * 1024 * 1024 + 77);
+        std::fs::write(dir.join("film.mov"), &big).unwrap();
+        std::fs::write(dir.join("note.txt"), b"a small one").unwrap();
+
+        let v =
+            Vault::create_with(DirStore::new(dir.join("vault")).unwrap(), "pw", cheap()).unwrap();
+        assert_eq!(
+            v.put_file("films/film.mov", &dir.join("film.mov")).unwrap(),
+            big.len() as u64
+        );
+        assert_eq!(v.put_file("note.txt", &dir.join("note.txt")).unwrap(), 11);
+        assert!(v.put_file("nothing", &dir.join("nothing")).is_err());
+
+        // The same bytes by either door are the same object.
+        v.put("films/again.mov", &big).unwrap();
+        assert_eq!(v.store().list("c").unwrap().len(), 2);
+
+        let mut out = Vec::new();
+        assert_eq!(
+            v.get_to("films/film.mov", &mut out).unwrap(),
+            Some(big.len() as u64)
+        );
+        assert_eq!(out, big);
+        let mut out = Vec::new();
+        assert_eq!(v.get_to("note.txt", &mut out).unwrap(), Some(11));
+        assert_eq!(out, b"a small one");
+        assert_eq!(v.get_to("nothing", &mut Vec::new()).unwrap(), None);
+
+        let mut buf = [0u8; 32];
+        assert_eq!(
+            v.read_at("films/film.mov", 1_000_000, &mut buf).unwrap(),
+            Some(32)
+        );
+        assert_eq!(buf, big[1_000_000..1_000_032]);
+
+        // No half-written blob is left beside the vault's own.
+        let stray: Vec<_> = std::fs::read_dir(dir.join("vault").join("c"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .filter(|n| n.starts_with('.'))
+            .collect();
+        assert!(stray.is_empty(), "{stray:?}");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

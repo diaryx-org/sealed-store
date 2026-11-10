@@ -24,6 +24,8 @@ pub enum Error {
     TooLarge,
     /// gzip or gunzip failed.
     Compression(String),
+    /// Reading what is to be sealed, or writing what was opened, failed.
+    Io(String),
     /// The store under a vault failed, or holds something a vault did not put
     /// there.
     Store(String),
@@ -41,6 +43,7 @@ impl fmt::Display for Error {
             Error::Frame(what) => write!(f, "{what}"),
             Error::TooLarge => write!(f, "object exceeds u32 compressed length"),
             Error::Compression(what) => write!(f, "gzip: {what}"),
+            Error::Io(what) => write!(f, "{what}"),
             Error::Store(what) => write!(f, "store: {what}"),
             Error::Vault(what) => write!(f, "{what}"),
         }

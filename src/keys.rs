@@ -27,6 +27,7 @@ const INFO_DEK: &[u8] = b"diaryx-ep-v1/dek";
 const INFO_BLIND: &[u8] = b"diaryx-ep-v1/blind";
 const INFO_MANIFEST: &[u8] = b"diaryx-ep-v1/manifest";
 const INFO_NONCE: &[u8] = b"diaryx-ep-v1/nonce";
+const INFO_STREAM_SALT: &[u8] = b"diaryx-ep-v1/stream-salt";
 const INFO_STORE_BLIND: &[u8] = b"diaryx-ep-v1/store-blind";
 const AAD_WRAP: &[u8] = b"diaryx-ep-v1/wrap";
 
@@ -339,6 +340,26 @@ impl Root {
             blind: hkdf32(&self.0, INFO_BLIND),
             manifest: hkdf32(&self.0, INFO_MANIFEST),
         }
+    }
+
+    /// The salt a chunked object is sealed under when its ciphertext has to be
+    /// reproducible ([`crate::seal_stream`]): the first 16 bytes of
+    /// `HKDF(root, "diaryx-ep-v1/stream-salt" ‖ 0x00 ‖ name ‖ 0x00 ‖ content_hash)`,
+    /// `content_hash_hex` being the lowercase-hex SHA-256 of the plaintext. A
+    /// chunked object is not compressed, so the plaintext is what is sealed,
+    /// and the salt repeats only when the name and every byte do.
+    pub fn stream_salt(&self, name_input: &str, content_hash_hex: &str) -> [u8; 16] {
+        let mut info = Vec::with_capacity(
+            INFO_STREAM_SALT.len() + name_input.len() + content_hash_hex.len() + 2,
+        );
+        info.extend_from_slice(INFO_STREAM_SALT);
+        info.push(0);
+        info.extend_from_slice(name_input.as_bytes());
+        info.push(0);
+        info.extend_from_slice(content_hash_hex.as_bytes());
+        let mut out = [0u8; 16];
+        hkdf_expand(&self.0, &info, &mut out);
+        out
     }
 
     /// The nonce an object is sealed under when its ciphertext has to be

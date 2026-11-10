@@ -47,3 +47,38 @@ fn a_wrap_sealed_by_node_unwraps_to_the_roots_dek() {
     assert_eq!(dek.fingerprint(), "cdfcf6badf6ef0cbd6778fb59955e72b");
     assert!(unwrap_dek(&kek, &wrap, "partner").is_err());
 }
+
+/// A chunked frame holds nothing a second implementation could choose
+/// differently (no compressor, no random nonce), so the two are held to the
+/// same bytes: 5000 bytes in 1 KiB chunks under a salt of sixteen 0x05.
+#[test]
+fn a_chunked_frame_is_the_bytes_node_seals() {
+    use sealed_store::{open_stream, seal_stream_with, sha256_hex};
+
+    let keys = root().keys();
+    let name = keys.object_key("b4rk9d");
+    let plain: Vec<u8> = (0..5000usize).map(|i| (i * 7 + (i >> 8)) as u8).collect();
+    let mut frame = Vec::new();
+    seal_stream_with(
+        &keys.dek(),
+        &name,
+        &[5; 16],
+        10,
+        plain.len() as u64,
+        &plain[..],
+        &mut frame,
+    )
+    .unwrap();
+    assert_eq!(frame.len(), 5245);
+    assert_eq!(
+        frame[..45],
+        unhex(
+            "444550320a050505050505050505050505050505053a260f2045aaf11d9c79d1b3562cadfe28889e2c0d4c07c6"
+        )[..]
+    );
+    assert_eq!(
+        sha256_hex(&frame),
+        "bff3e0d230a618c85cf9ee8114e5be6e72d69a2e79c1ed4ed066ad46fa5f8977"
+    );
+    assert_eq!(open_stream(&keys.dek(), &name, &frame).unwrap(), plain);
+}

@@ -356,3 +356,47 @@ fn a_file_moved_and_removed_leaves_the_directory_as_it_should_be() {
     );
     assert_eq!(on_disk(&scratch.0).len(), 1, "only the header is left");
 }
+
+#[test]
+fn a_large_file_is_brought_in_chunked_and_saved_back_whole() {
+    let scratch = Scratch::new("large");
+    let outside = Scratch::new("large-outside");
+    std::fs::create_dir_all(&outside.0).unwrap();
+    // Three mebibytes that do not compress, with the note's words in them.
+    let mut film: Vec<u8> = (0..3 * 1024 * 1024u32)
+        .map(|i| (i.wrapping_mul(2654435761) >> 13) as u8)
+        .collect();
+    film[2_000_000..2_000_032].copy_from_slice(NOTE.as_bytes());
+    let source = outside.0.join("film.mov");
+    std::fs::write(&source, &film).unwrap();
+
+    let mut doc = with_a_note(&scratch);
+    type_into(&mut doc, "input[name='from']", &source.to_string_lossy());
+    press(&mut doc, "Keep a copy in the vault");
+    assert_eq!(said(&doc), ("Kept \"film.mov\": 3.0 MiB.".into(), false));
+    assert_eq!(
+        texts(&doc, ".unit-row-title")[..2],
+        ["film.mov", "journal/today.md"]
+    );
+
+    // In the directory: a chunked frame, a little longer than the film, with
+    // none of the film's words in it.
+    let sealed = on_disk(&scratch.0)
+        .into_iter()
+        .find(|(name, bytes)| name.starts_with("c/") && bytes.len() > 1 << 20)
+        .expect("the film's bytes");
+    assert_eq!(&sealed.1[..4], b"DEP2");
+    assert!(sealed.1.len() > film.len() && sealed.1.len() < film.len() * 9 / 8);
+    assert!(!sealed.1.windows(NOTE.len()).any(|w| w == NOTE.as_bytes()));
+
+    let copy = outside.0.join("copy.mov");
+    type_into(&mut doc, "input[name='copy-to']", &copy.to_string_lossy());
+    let save = find(&doc, ".unit-field-action button", "Save");
+    click(&mut doc, save);
+    let (text, wrong) = said(&doc);
+    assert!(
+        !wrong && text.starts_with("Saved \"film.mov\" in the clear"),
+        "{text}"
+    );
+    assert_eq!(std::fs::read(&copy).unwrap(), film);
+}

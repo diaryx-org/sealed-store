@@ -399,13 +399,10 @@ fn BringIn(state: State) -> Element {
                         "" => source.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
                         given => given.to_string(),
                     };
-                    let bytes = match std::fs::read(&source) {
-                        Ok(bytes) => bytes,
-                        Err(e) => return state.fail(&format!("Reading {}", source.display()), e),
-                    };
+                    // Read off the disk a piece at a time: a film is not held in memory.
                     state.with("Keeping the file", |v| {
-                        v.put(&at, &bytes)?;
-                        Ok(format!("Kept {at:?}: {}.", size(bytes.len() as u64)))
+                        let len = v.put_file(&at, &source)?;
+                        Ok(format!("Kept {at:?}: {}.", size(len)))
                     });
                     if !state.said.peek().wrong {
                         selected.set(Some(at));
@@ -428,15 +425,17 @@ fn OneFile(state: State, file: File) -> Element {
 
     // Opened again whenever the entry is another: the digest changes with
     // the bytes.
+    // Only the head of the file is opened: of a chunked one, its first chunk.
     let shown = {
         let vault = state.vault.read();
-        match vault.as_ref().map(|v| v.get(&file.path)) {
-            Some(Ok(Some(bytes))) if bytes.len() > PREVIEW_LIMIT => Err(format!(
-                "{} is more than this page shows.",
-                size(bytes.len() as u64)
-            )),
-            Some(Ok(Some(bytes))) => {
-                String::from_utf8(bytes).map_err(|_| "These bytes are not text.".to_string())
+        let mut head = vec![0u8; PREVIEW_LIMIT.min(file.len as usize)];
+        match vault.as_ref().map(|v| v.read_at(&file.path, 0, &mut head)) {
+            Some(Ok(Some(_))) if file.len as usize > PREVIEW_LIMIT => {
+                Err(format!("{} is more than this page shows.", size(file.len)))
+            }
+            Some(Ok(Some(n))) => {
+                head.truncate(n);
+                String::from_utf8(head).map_err(|_| "These bytes are not text.".to_string())
             }
             Some(Ok(None)) | None => Err("It is gone.".to_string()),
             Some(Err(e)) => Err(format!("It does not open: {e}")),
@@ -477,12 +476,23 @@ fn OneFile(state: State, file: File) -> Element {
                                 move |to: String| {
                                     let to = on_disk(&to);
                                     state.with("Saving a copy", |v| {
-                                        let bytes = v.get(&path)?.ok_or_else(|| {
-                                            sealed_store::Error::Vault(format!("{path:?} is gone"))
-                                        })?;
-                                        std::fs::write(&to, &bytes).map_err(|e| {
-                                            sealed_store::Error::Store(format!("writing {}: {e}", to.display()))
-                                        })?;
+                                        let write = |e: std::io::Error| {
+                                            sealed_store::Error::Io(format!("writing {}: {e}", to.display()))
+                                        };
+                                        let mut out = std::fs::File::create(&to).map_err(write)?;
+                                        // Written a chunk at a time; a file that does not
+                                        // open whole is not left half-written.
+                                        match v.get_to(&path, &mut out) {
+                                            Ok(Some(_)) => {}
+                                            Ok(None) => {
+                                                let _ = std::fs::remove_file(&to);
+                                                return Err(sealed_store::Error::Vault(format!("{path:?} is gone")));
+                                            }
+                                            Err(e) => {
+                                                let _ = std::fs::remove_file(&to);
+                                                return Err(e);
+                                            }
+                                        }
                                         Ok(format!("Saved {path:?} in the clear at {}.", to.display()))
                                     });
                                     if !state.said.peek().wrong {
@@ -584,7 +594,7 @@ fn Keeper(state: State) -> Element {
                     }), "Sweep" }
                 }
                 Text { dim: true,
-                    "e/ is one entry per file, c/ a file's bytes. The names are HMACs, the lengths "
+                    "e/ is one entry per file, c/ a file's bytes, chunked past 1 MiB. The names are HMACs, the lengths "
                     "padded, and vault.json holds the gates: a salt, and the root wrapped once per gate."
                 }
             }

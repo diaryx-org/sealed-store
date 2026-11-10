@@ -86,6 +86,63 @@ The nonce is one of two things.
 
 The nonce rides in the frame because a reader holds the DEK and not the root.
 
+## Chunked objects
+
+The frame above is one AEAD message, held whole in memory. A large object is
+sealed as many, so it is sealed from a reader and opened to a writer in
+constant memory, and a range of it is opened by fetching only the chunks that
+hold it.
+
+```
+frame      = "DEP2" ‖ chunk_log2(1) ‖ salt(16) ‖ sealed_len(24) ‖ chunk_0 ‖ … ‖ chunk_n-1
+key        = HKDF(dek, "diaryx-ep-v1/stream-key" ‖ 0x00 ‖ object_key ‖ 0x00 ‖ chunk_log2 ‖ salt, 32)
+nonce(c,f) = 0x000000 ‖ u64-be c ‖ f
+sealed_len = AES-256-GCM(key, nonce(0, 2), u64-le len, aad)
+chunk_i    = AES-256-GCM(key, nonce(i, i == n-1 ? 1 : 0), piece_i, aad)
+aad        = "diaryx-ep-v1/chunk"
+```
+
+The pieces are the plaintext followed by zeros out to the Padmé bucket of its
+length, cut every `2^chunk_log2` bytes, so `n = max(1, ceil(padme(len) / 2^chunk_log2))`
+and an empty object is one empty chunk. `chunk_log2` is 10 to 24, and 16
+(64 KiB) unless a caller says otherwise. The header is 45 bytes and each chunk
+carries a 16-byte tag, so chunk `i` begins at `45 + i · (2^chunk_log2 + 16)`.
+
+Nothing is compressed. What is worth chunking is mostly compressed already,
+and a range of a compressed stream cannot be opened alone. It also leaves
+nothing for two implementations to do differently: the same key, salt and
+bytes give the same frame everywhere.
+
+This is the STREAM construction (Hoang, Reyhanitabar, Rogaway and Vizár,
+2015), as `age` and Tink use it:
+
+- Each object has a key of its own, from its salt, so a counter is a safe
+  nonce.
+- The counter holds each chunk to its place: chunks swapped or repeated do
+  not open.
+- The flag on the last chunk keeps an object from being cut short or run on.
+- The key's derivation binds every chunk to the object's blinded name, its
+  chunk size and its salt, so a chunk opens in no other object.
+- The length is sealed in the header under the same key, so a reader knows
+  how many chunks there are, and which is last, before it fetches one, and a
+  frame of the wrong length is refused before any chunk is read.
+
+The salt is one of two things.
+
+- **Random**, 16 bytes.
+- **Derived**:
+  `HKDF(root, "diaryx-ep-v1/stream-salt" ‖ 0x00 ‖ name ‖ 0x00 ‖ content_hash)[0..16]`,
+  `content_hash` being the lowercase-hex SHA-256 of the plaintext. The same
+  bytes at the same name reproduce the same frame, as a derived nonce does
+  for an unchunked one. The sealer needs the hash before it seals, which is a
+  pass over the bytes.
+
+A salt must never be used twice under one DEK and name for different bytes:
+that is two objects under one key and the same counters.
+
+A reader opening a range checks each chunk it opens and nothing else. Reading
+a whole object and finding every chunk true says the object is whole.
+
 ## A vault
 
 A vault is files by path in a store. This layer is sealed-store's own and newer than
@@ -114,8 +171,11 @@ A gate's `wrap` is the vault's **root**, not its DEK:
 which takes the blind key, which takes the root. The id in the AAD keeps a
 wrap lifted from one vault's header from opening another's.
 
-**Content**, `c/<key>`: a derived-nonce frame of the file's bytes, with
-`name = 0x00 ‖ "c/" ‖ sha256_hex(bytes)` and `key` its blinded name.
+**Content**, `c/<key>`: the file's bytes, with
+`name = 0x00 ‖ "c/" ‖ sha256_hex(bytes)` and `key` its blinded name. A file
+of at most 1 MiB is a derived-nonce frame; a longer one is a chunked frame
+under a derived salt. Which it is depends on the length alone, so the same
+bytes always seal the same way.
 
 **Entry**, `e/<key>`: a derived-nonce frame of the JSON
 `{"path": "<path>", "content": "<sha256 hex>", "len": <bytes>}`, with
@@ -163,8 +223,15 @@ It does not learn a name, a path, a directory's shape, or a byte of content.
   which the birthday bound puts near 2^48 objects under one root. A design
   for strangers' data at scale would use a misuse-resistant AEAD here; v1
   keeps what diaryx's deployed readers open.
-- **One message per object.** Sealing and opening hold the whole object in
-  memory, a compressed body is at most 4 GiB, and there is no reading a range.
+- **An unchunked object is one message.** Sealing and opening it hold the
+  whole object in memory, and a compressed body is at most 4 GiB. A chunked
+  object has neither limit.
+- **A range is not the whole.** A range read of a chunked object proves those
+  chunks are the object's and in their places. It does not prove the rest is
+  there.
+- **No writing into an object.** Changing one byte of a chunked object seals
+  all of it again, under a new salt. Rewriting a chunk in place would reuse
+  its nonce.
 
 ## Test vectors
 
@@ -172,4 +239,5 @@ It does not learn a name, a path, a directory's shape, or a byte of content.
 `hashlib` and `hmac`, and the password gate against the vector diaryx's reader
 shell pins (cross-checked there against a C Argon2id). `tests/vectors.rs`
 opens a frame and a wrap sealed by `tests/vectors.mjs`, which is Node's
-`crypto` and `zlib` and shares no code with this crate.
+`crypto` and `zlib` and shares no code with this crate, and holds a chunked
+frame to the same bytes that script seals.

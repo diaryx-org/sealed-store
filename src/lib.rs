@@ -1,7 +1,7 @@
 //! sealed-store: a sealed object store for hosts that are not trusted with what they
 //! hold.
 //!
-//! Three layers, each usable without the one above it:
+//! Four layers, each usable without the one above it:
 //!
 //! - **Key material** ([`Root`], [`Keys`], [`Dek`], [`Kek`], the gates). A
 //!   root is 32 random bytes; a key for content and a key for names are
@@ -12,6 +12,9 @@
 //! - **Objects** ([`seal_object`], [`seal_derived`], [`open_object`]). One
 //!   frame per object: gzipped, padded to a Padmé bucket, sealed with
 //!   AES-256-GCM, and bound to the blinded name it is stored under.
+//! - **Chunked objects** ([`seal_stream`], [`StreamOpener`]). A large object
+//!   as many AEAD messages: sealed and opened in constant memory, and any
+//!   range of it opened from the chunks that hold it.
 //! - **A vault** ([`Vault`] over a [`Store`], with the `vault` feature, on by
 //!   default). Files by path in a directory, a bucket or memory, whose keeper
 //!   learns neither a file's name nor its bytes.
@@ -40,6 +43,7 @@ mod keys;
 mod object;
 #[cfg(feature = "vault")]
 mod store;
+mod stream;
 #[cfg(feature = "vault")]
 mod vault;
 
@@ -49,8 +53,12 @@ pub use keys::{
     StoreNames, derive_link_gate, derive_password_gate, hex, hkdf32, open_frame, reserved_name,
     seal_frame, sha256_hex, unwrap_dek, wrap_dek,
 };
-pub use object::{FRAME_OVERHEAD, open_object, padme, seal_derived, seal_object};
+pub use object::{FRAME_OVERHEAD, open_object, padme, padme64, seal_derived, seal_object};
 #[cfg(feature = "vault")]
 pub use store::{DirStore, MemStore, Store, check_name};
+pub use stream::{
+    CHUNK_LOG2, ReadAt, STREAM_HEADER, StreamOpener, is_stream, open_stream, random_stream_salt,
+    seal_stream, seal_stream_with, sealed_stream_len,
+};
 #[cfg(feature = "vault")]
-pub use vault::{Entry, Gate, GateType, HEADER, Held, Vault};
+pub use vault::{Entry, Gate, GateType, HEADER, Held, INLINE_LIMIT, Vault};

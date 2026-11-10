@@ -11,7 +11,8 @@
 //! version, and a host that kept an earlier frame under a name can serve it
 //! again.
 //!
-//! A frame is one AEAD message, held whole in memory to seal and to open.
+//! A frame is one AEAD message, held whole in memory to seal and to open. A
+//! large object wants the chunked frame in [`crate::seal_stream`].
 
 use aes_gcm::aead::{Aead, Payload};
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
@@ -29,12 +30,17 @@ pub const FRAME_OVERHEAD: usize = 4 + 12 + 16;
 /// grow (at most about 12%), leaking only O(log log n) bits of the true
 /// length. <https://petsymposium.org/2019/files/papers/issue4/popets-2019-0056.pdf>
 pub fn padme(len: usize) -> usize {
+    padme64(len as u64) as usize
+}
+
+/// [`padme`] over a length that need not fit in memory.
+pub fn padme64(len: u64) -> u64 {
     if len < 2 {
         return len;
     }
-    let e = usize::BITS - 1 - len.leading_zeros();
+    let e = u64::BITS - 1 - len.leading_zeros();
     let s = u32::BITS - e.leading_zeros();
-    let mask = (1usize << (e - s)) - 1;
+    let mask = (1u64 << (e - s)) - 1;
     (len + mask) & !mask
 }
 

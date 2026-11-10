@@ -35,7 +35,9 @@ for file in vault.list()? {
 }
 ```
 
-A `Store` is four methods (`get`, `put`, `delete`, `list`) over named blobs.
+A `Store` is four methods (`get`, `put`, `delete`, `list`) over named blobs,
+and three more with defaults (`size`, `get_range`, `put_with`) that a store
+overrides to read and write a large blob a piece at a time.
 `DirStore` is a directory and `MemStore` a map; a bucket is one more
 implementation.
 
@@ -45,9 +47,10 @@ implementation.
 |---|---|---|
 | Key material | `Root`, `Keys`, `Dek`, `Kek`, `GateSecret`, `PasswordKdf`, `derive_link_gate`, `derive_password_gate`, `wrap_dek` | A root, the content key and the naming key derived from it, and gates that each wrap the one key. Adding a way in is one small blob; nothing is sealed again. |
 | Objects | `seal_object`, `seal_derived`, `open_object`, `padme` | One frame per object: gzip, Padmé padding, AES-256-GCM, bound to its blinded name. `seal_derived` gives the same bytes for the same input, so a listing can be diffed with no state kept. |
-| A vault | `Vault`, `Store`, `DirStore`, `MemStore` | Files by path. One sealed entry and one sealed content object per file, no shared index, a header with the gates. The `vault` feature, on by default. |
+| Chunked objects | `seal_stream`, `StreamOpener`, `open_stream`, `ReadAt` | A large object as many AEAD messages (STREAM): constant memory to seal and open, and a range opened from the chunks that hold it. |
+| A vault | `Vault`, `Store`, `DirStore`, `MemStore` | Files by path. One sealed entry and one sealed content object per file (chunked past 1 MiB), no shared index, a header with the gates. The `vault` feature, on by default. |
 
-`default-features = false` leaves the first two layers, with no serde: what a
+`default-features = false` leaves the first three layers, with no serde: what a
 publisher that keeps its own records asks for.
 
 ## Beside Cryptomator
@@ -59,9 +62,10 @@ calls. It hides more than Cryptomator's vault format does, and does less.
   padded size, and nothing of the directory tree.
 - A file's content is named by its digest, so a rename seals only a small
   entry, and two copies of a file are one object.
-- Every object is one AEAD message held in memory. There is no reading a
-  range of a file, and no writing into one. A large video is the wrong thing
-  to keep in it today.
+- A file past 1 MiB is kept chunked: sealed from disk and written back a
+  piece at a time, and any range of it read by fetching only the 64 KiB
+  chunks that hold it (`put_file`, `get_to`, `read_at`). There is no writing
+  into a file: a changed file is sealed again.
 - A password, any number of keys, each opening the same vault. Removing one
   does not re-key.
 
