@@ -12,7 +12,7 @@ use std::fmt;
 pub enum Error {
     /// An encoded secret, salt or blob that does not decode to what it should.
     Encoding(String),
-    /// Argon2id refused its parameters or its input.
+    /// Argon2id refused its parameters or its input, in its words.
     Kdf(String),
     /// The cipher refused to seal. Not reachable with a body the frame holds.
     Seal,
@@ -35,7 +35,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::Encoding(what) => write!(f, "{what}"),
-            Error::Kdf(what) => write!(f, "argon2: {what}"),
+            Error::Kdf(what) => write!(f, "{what}"),
             Error::Seal => write!(f, "seal failed"),
             Error::Open => write!(f, "open failed: wrong key, wrong name, or a tampered frame"),
             Error::Frame(what) => write!(f, "{what}"),

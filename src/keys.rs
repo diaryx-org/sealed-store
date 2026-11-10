@@ -247,12 +247,12 @@ impl PasswordKdf {
 /// both halves.
 pub fn derive_password_gate(password: &str, kdf: &PasswordKdf) -> Result<GateKeys> {
     let params = Params::new(kdf.m_kib, kdf.t_cost, kdf.p_cost, Some(64))
-        .map_err(|e| Error::Kdf(format!("params: {e}")))?;
+        .map_err(|e| Error::Kdf(format!("argon2 params: {e}")))?;
     let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
     let mut out = [0u8; 64];
     argon
         .hash_password_into(password.as_bytes(), &kdf.salt, &mut out)
-        .map_err(|e| Error::Kdf(e.to_string()))?;
+        .map_err(|e| Error::Kdf(format!("argon2: {e}")))?;
     let mut proof = [0u8; 32];
     let mut kek = [0u8; 32];
     proof.copy_from_slice(&out[..32]);
